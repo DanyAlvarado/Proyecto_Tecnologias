@@ -11,6 +11,7 @@ import models
 load_dotenv()
 from routes.ia_routes import ia_bp 
 from routes.auth_routes import auth_bp 
+from routes.historial_routes import historial_bp
 
 app = Flask(__name__)
 CORS(app) 
@@ -30,6 +31,7 @@ with app.app_context():
 
 app.register_blueprint(ia_bp, url_prefix='/api/ia')
 app.register_blueprint(auth_bp, url_prefix='/api/auth')
+app.register_blueprint(historial_bp, url_prefix='/api/historial')
 
 @app.route('/')
 def estado_servidor():

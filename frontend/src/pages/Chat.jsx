@@ -1,60 +1,103 @@
 // frontend/src/pages/Chat.jsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react'; // Importamos useEffect
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
 export default function Chat() {
   const navigate = useNavigate();
 
-  // NUEVO: Extraemos el usuario que inició sesión desde el localStorage
-  // Si por alguna razón no hay usuario (ej. entró directo a la URL), ponemos 'Estudiante' por defecto
-  const datosUsuario = JSON.parse(localStorage.getItem('usuarioTutorIA')) || { username: 'Estudiante' };
+  // 1. OBTENER USUARIO: Si no hay nadie logueado, lo pateamos al Login por seguridad
+  const datosUsuario = JSON.parse(localStorage.getItem('usuarioTutorIA'));
+  useEffect(() => {
+    if (!datosUsuario) navigate('/');
+  }, [datosUsuario, navigate]);
 
   // --- MEMORIA DEL COMPONENTE ---
-  const [mensajes, setMensajes] = useState([
-    // NUEVO: Inyectamos el nombre del usuario en el saludo de la IA
-    { rol: 'ia', texto: `¡Hola, ${datosUsuario.username}! Soy TutorIA. ¿En qué concepto de Pensamiento Computacional o Programación te puedo ayudar hoy?` }
-  ]);
+  const [mensajes, setMensajes] = useState([]);
   const [textoInput, setTextoInput] = useState('');
   const [sidebarAbierto, setSidebarAbierto] = useState(true);
   const [cargando, setCargando] = useState(false);
+  
+  // NUEVO: Memoria real para la base de datos
+  const [historialChats, setHistorialChats] = useState([]); // Lista del panel lateral
+  const [chatActualId, setChatActualId] = useState(null);   // ID del chat que estamos viendo
 
-  const [historialChats] = useState([
-    "Dudas sobre ciclos For",
-    "Explicación de Matrices"
-  ]);
+  // --- EFECTOS AUTOMÁTICOS ---
+  // Cuando la pantalla carga por primera vez, vamos a buscar los chats del usuario
+  useEffect(() => {
+    if (datosUsuario) {
+      cargarPanelLateral();
+      iniciarNuevoChat(); // Empezamos con la pantalla limpia
+    }
+  }, []);
 
-  // --- FUNCIONES ---
+  // --- FUNCIONES DE BASE DE DATOS ---
+  const cargarPanelLateral = async () => {
+    try {
+      const res = await axios.get(`http://127.0.0.1:5000/api/historial/usuario/${datosUsuario.id_usuario}`);
+      setHistorialChats(res.data);
+    } catch (error) {
+      console.error("Error al cargar historial lateral:", error);
+    }
+  };
+
+  const cargarChatEspecifico = async (id_conversacion) => {
+    try {
+      const res = await axios.get(`http://127.0.0.1:5000/api/historial/conversacion/${id_conversacion}`);
+      setMensajes(res.data); // Ponemos los globos de texto de la BD en la pantalla
+      setChatActualId(id_conversacion); // Le decimos a React en qué chat estamos
+    } catch (error) {
+      console.error("Error al cargar los mensajes del chat:", error);
+    }
+  };
+
+  const iniciarNuevoChat = () => {
+    setChatActualId(null);
+    setMensajes([
+      { rol: 'ia', texto: `¡Hola, ${datosUsuario?.username}! Soy TutorIA. ¿En qué concepto de Pensamiento Computacional o Programación te puedo ayudar hoy?` }
+    ]);
+  };
+
+  // --- FUNCIÓN DE ENVÍO ACTUALIZADA ---
   const manejarEnvio = async (e) => {
     e.preventDefault();
     if (textoInput.trim() === '') return;
 
     const nuevoMensajeUsuario = { rol: 'user', texto: textoInput };
-    const historialActualizado = [...mensajes, nuevoMensajeUsuario];
-    setMensajes(historialActualizado);
-    
+    setMensajes((prev) => [...prev, nuevoMensajeUsuario]); // Dibujamos el globo del usuario
     setTextoInput('');
     setCargando(true);
 
     try {
+      // Ahora enviamos el formato que pide nuestra nueva ruta de Flask
       const respuestaServidor = await axios.post('http://127.0.0.1:5000/api/ia/chat', {
-        historial: historialActualizado 
+        id_usuario: datosUsuario.id_usuario,
+        id_conversacion: chatActualId, // Si es null, Flask sabrá que debe crear uno nuevo
+        mensaje: nuevoMensajeUsuario.texto
       });
 
-      setMensajes([...historialActualizado, { rol: 'ia', texto: respuestaServidor.data.respuesta }]);
+      // Dibujamos el globo de la IA
+      setMensajes((prev) => [...prev, { rol: 'ia', texto: respuestaServidor.data.respuesta }]);
+
+      // Si era un chat nuevo, actualizamos el ID y refrescamos el panel lateral
+      if (!chatActualId) {
+        setChatActualId(respuestaServidor.data.id_conversacion);
+        cargarPanelLateral();
+      }
 
     } catch (error) {
-      setMensajes([...historialActualizado, { rol: 'ia', texto: "Error: No me pude conectar con el servidor de TutorIA." }]);
+      setMensajes((prev) => [...prev, { rol: 'ia', texto: "Error: No me pude conectar con el servidor de TutorIA." }]);
     } finally {
       setCargando(false);
     }
   };
 
   const cerrarSesion = () => {
-    // Limpiamos la memoria del navegador al salir
     localStorage.removeItem('usuarioTutorIA');
     navigate('/');
   };
+
+  if (!datosUsuario) return null; // Evita parpadeos si no hay usuario
 
   // --- DISEÑO VISUAL ---
   return (
@@ -63,20 +106,40 @@ export default function Chat() {
       {/* PANEL LATERAL */}
       <div style={{ width: sidebarAbierto ? '260px' : '0px', transition: 'width 0.3s ease', overflow: 'hidden', backgroundColor: '#f9f9f9', borderRight: sidebarAbierto ? '1px solid #e5e5e5' : 'none', display: 'flex', flexDirection: 'column', whiteSpace: 'nowrap' }}>
         <div style={{ padding: '20px' }}>
-          <button style={{ width: '100%', padding: '10px', backgroundColor: '#ffffff', border: '1px solid #d1d5db', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px' }}>
+          <button onClick={iniciarNuevoChat} style={{ width: '100%', padding: '10px', backgroundColor: '#ffffff', border: '1px solid #d1d5db', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', fontWeight: '500' }}>
             <span>+</span> Nuevo Chat
           </button>
         </div>
+        
         <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px' }}>
-          <p style={{ fontSize: '12px', color: '#888', fontWeight: 'bold', marginBottom: '10px' }}>Historial (Simulado)</p>
-          {historialChats.map((chat, index) => (
-            <div key={index} style={{ padding: '10px', fontSize: '14px', color: '#444', cursor: 'pointer', borderRadius: '6px', marginBottom: '5px' }}>
-              💬 {chat}
-            </div>
-          ))}
+          <p style={{ fontSize: '12px', color: '#888', fontWeight: 'bold', marginBottom: '10px' }}>Tus Conversaciones</p>
+          
+          {/* AHORA MAPEAMOS LOS CHATS REALES DE LA BASE DE DATOS */}
+          {historialChats.length === 0 ? (
+            <p style={{ fontSize: '13px', color: '#aaa', fontStyle: 'italic' }}>No hay chats anteriores.</p>
+          ) : (
+            historialChats.map((chat) => (
+              <div 
+                key={chat.id_conversacion} 
+                onClick={() => cargarChatEspecifico(chat.id_conversacion)}
+                style={{ 
+                  padding: '10px', 
+                  fontSize: '14px', 
+                  color: '#444', 
+                  cursor: 'pointer', 
+                  borderRadius: '6px', 
+                  marginBottom: '5px',
+                  backgroundColor: chatActualId === chat.id_conversacion ? '#e5e7eb' : 'transparent', // Resaltamos el chat activo
+                  overflow: 'hidden', textOverflow: 'ellipsis'
+                }}
+                title={chat.titulo}
+              >
+                💬 {chat.titulo}
+              </div>
+            ))
+          )}
         </div>
         
-        {/* NUEVO: Mostramos el nombre real del usuario en la parte inferior del Sidebar */}
         <div style={{ padding: '20px', borderTop: '1px solid #e5e5e5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: '14px', fontWeight: '500' }}>👤 {datosUsuario.username}</span>
           <button onClick={cerrarSesion} style={{ background: 'none', border: 'none', color: '#ff4c4c', cursor: 'pointer', fontSize: '12px' }}>Salir</button>
@@ -110,7 +173,7 @@ export default function Chat() {
               <div style={{ width: '100%', maxWidth: '750px', display: 'flex', gap: '20px' }}>
                 <div style={{ fontSize: '24px' }}>🤖</div>
                 <div style={{ flex: 1, fontSize: '16px', color: '#6b7280', fontStyle: 'italic', paddingTop: '4px' }}>
-                  TutorIA está analizando tu duda...
+                  TutorIA está analizando y guardando tu duda...
                 </div>
               </div>
             </div>
