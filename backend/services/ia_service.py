@@ -209,8 +209,7 @@ def generar_respuesta_tutor(historial_mensajes):
         respuesta = client.chat.completions.create(
             model=modelo_actual,
             messages=mensajes_para_openai,
-            temperature=0.3,
-            store=True
+            temperature=0.3 
         )
         return respuesta.choices[0].message.content
     except Exception as e:
