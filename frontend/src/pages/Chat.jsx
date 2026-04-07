@@ -30,6 +30,34 @@ export default function Chat() {
     if (datosUsuario) { cargarPanelLateral(); iniciarNuevoChat(); }
   }, []);
 
+  // --- LÓGICA DE CIERRE INESPERADO Y RECARGA (F5) ---
+  useEffect(() => {
+    const registrarSalida = () => {
+      if (datosUsuario && datosUsuario.id_bitacora) {
+        // 1. Avisamos al backend que cierre la sesión en la base de datos
+        fetch('http://127.0.0.1:5000/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ id_bitacora: datosUsuario.id_bitacora }),
+          keepalive: true 
+        }).catch(err => console.error("Error silencioso al cerrar:", err));
+      }
+      
+      // 2. Destruimos la sesión en el navegador
+      // Así, cuando F5 termine de recargar la página, React no encontrará al usuario
+      // y tu propio useEffect del inicio lo pateará de vuelta a la ruta '/' (Login)
+      localStorage.removeItem('usuarioTutorIA');
+    };
+
+    window.addEventListener('beforeunload', registrarSalida);
+
+    return () => {
+      window.removeEventListener('beforeunload', registrarSalida);
+    };
+  }, [datosUsuario]);
+
   const cargarPanelLateral = async () => {
     try {
       const res = await axios.get(`http://127.0.0.1:5000/api/historial/usuario/${datosUsuario.id_usuario}`);
